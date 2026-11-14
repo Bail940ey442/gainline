@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gainline: train with friends, live</title>
+<meta name="description" content="Watch friends train live, challenge them head to head, and follow a plan built for you. Use a creator's code for 10% off your first year.">
+<style>
+:root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--muted:#a1a1a6}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 10%,#283352,#000 60%);color:var(--text);font:17px/1.5 -apple-system,system-ui,sans-serif}
+main{max-width:520px;margin:0 auto;padding:56px 20px;text-align:center}
+.icon{width:88px;height:88px;border-radius:20px;background:#000;border:1px solid #333;display:grid;place-items:center;margin:0 auto;font-size:44px;font-weight:900}
+h1{font-size:38px;line-height:1.1;margin:24px 0 8px}
+p{color:var(--muted)}
+.card{background:var(--card);border-radius:22px;padding:22px;margin-top:28px}
+.code{font-size:40px;font-weight:900;letter-spacing:.08em;margin:6px 0}
+button,.store{display:inline-block;font:inherit;font-weight:700;border:0;border-radius:999px;padding:14px 22px;background:#fff;color:#000;text-decoration:none;cursor:pointer;margin-top:10px}
+button.ghost{background:transparent;color:#fff;border:1px solid #444}
+ol{text-align:left;color:var(--muted);padding-left:20px}
+</style>
+</head>
+<body><main>
+<div class="icon" aria-hidden="true">⌃</div>
+<h1>Train with friends.<br>Live.</h1>
+<p>Watch friends lift in real time, cheer every set, challenge them head to head, and follow a plan built for you. For iPhone and Apple Watch.</p>
+<div class="card" id="codeCard" hidden>
+  <p style="margin:0">Your code for <strong style="color:#fff">10% off your first year</strong></p>
+  <div class="code" id="code"></div>
+  <button class="ghost" id="copy">Copy code</button>
+  <ol>
+    <li>Download Gainline.</li>
+    <li>Answer a few questions to get your plan.</li>
+    <li>On the next screen tap <strong>Have a code?</strong> and enter <strong id="code2"></strong>.</li>
+  </ol>
+</div>
+<a class="store" href="https://apps.apple.com/app/id6830128454">Download on the App Store</a>
+<p style="font-size:14px;margin-top:28px"><a href="../" style="color:var(--muted)">Support</a> · <a href="../privacy-policy.html" style="color:var(--muted)">Privacy</a></p>
+<script>
+// The link is …/c/?JAMES (or ?code=JAMES).
+const params = new URLSearchParams(location.search);
+const raw = params.get("code") || location.search.slice(1).split("&")[0];
+const code = decodeURIComponent(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+if (code.length >= 3) {
+  document.getElementById("code").textContent = code;
+  document.getElementById("code2").textContent = code;
+  document.getElementById("codeCard").hidden = false;
+  document.getElementById("copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(code); document.getElementById("copy").textContent = "Copied"; } catch {}
+  };
+}
+</script>
+</main></body></html>

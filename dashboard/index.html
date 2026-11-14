@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Gainline Creators</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a7aff;--line:#e5e5ea;--good:#1f9d55;--warn:#c2410c}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--muted:#a1a1a6;--accent:#2890ff;--line:#2c2c2e;--good:#34c759;--warn:#ff9f0a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:32px;margin:0 0 4px}h2{font-size:20px;margin:0 0 12px}
+.muted{color:var(--muted)}
+.card{background:var(--card);border-radius:18px;padding:20px;margin-top:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:16px}
+.tile{background:var(--card);border-radius:16px;padding:16px}
+.tile b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0}
+button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 16px;background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);padding:6px 8px}
+button:disabled{opacity:.5;cursor:default}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:15px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600}
+td.num,th.num{text-align:right}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--line)}
+.owed{color:var(--warn);font-weight:700}
+#message{min-height:1.5em;margin-top:8px}
+.ok{color:var(--good)}.err{color:var(--warn)}
+</style>
+</head>
+<body><main>
+<h1>Creators</h1>
+<p class="muted">Gainline's creator codes: who's bringing in subscribers, what they've earned and what you owe. Earnings are a share of what you receive after Apple's cut and VAT (estimated in GBP; Apple's monthly payment report is exact).</p>
+
+<section id="login" class="card" hidden>
+  <h2>Sign in</h2>
+  <p class="muted">Enter the admin email and open the link in the email on this device.</p>
+  <form id="loginForm" class="row">
+    <label style="flex:1">Email<input id="email" type="email" autocomplete="email" required value="baileywilson12@icloud.com"></label>
+    <button>Email me a sign-in link</button>
+  </form>
+  <p id="loginMessage" class="muted"></p>
+</section>
+
+<section id="app" hidden>
+  <div class="tiles" id="totals"></div>
+
+  <div class="card">
+    <h2>Add a creator</h2>
+    <form id="addForm" class="row">
+      <label style="flex:2">Name<input id="name" required maxlength="80" placeholder="James Smith"></label>
+      <label style="flex:2">Email (optional)<input id="cemail" type="email" maxlength="200" placeholder="james@example.com"></label>
+      <label style="flex:1">Code<input id="code" required maxlength="16" pattern="[A-Za-z0-9]{3,16}" placeholder="JAMES"></label>
+      <label style="width:90px">Share %<input id="share" type="number" min="0" max="50" step="0.5" value="10"></label>
+      <button>Add</button>
+    </form>
+    <p class="muted" style="font-size:14px;margin-bottom:0">Their code gives users 10% off the first year of the yearly plan (Apple's offer code) and credits the creator on any plan.</p>
+    <div id="message"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center"><h2 style="margin:0">All creators</h2><button class="ghost" id="refresh">Refresh</button></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Creator</th><th>Code</th><th class="num">Share</th><th class="num">Code uses</th><th class="num">Subscribed</th><th class="num">Paying</th><th class="num">Active</th><th class="num">Earned</th><th class="num">Paid</th><th class="num">Owed</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="muted" style="font-size:14px">Subscribed counts free trials too. Paying means they paid at least once. A refund takes the earnings back.</p>
+  </div>
+</section>
+
+<script>
+const SUPABASE = "https://dgncznswtxudxndubxrd.supabase.co";
+const KEY = "sb_publishable_m_cLS71u8KLJ-C67vG8U_Q_pjMyUjPZ";
+const SITE = "https://bail940ey442.github.io/gainline";
+const gbp = n => "£" + Number(n || 0).toFixed(2);
+const $ = id => document.getElementById(id);
+
+// A small text/element helper so names never go in as HTML.
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "onclick") node.onclick = v; else if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
+  return node;
+}
+
+// ---- Sign-in (Supabase Auth magic link) ----
+function saveSession(s) { try { sessionStorage.setItem("gl.session", JSON.stringify(s)); } catch {} }
+function loadSession() { try { return JSON.parse(sessionStorage.getItem("gl.session") || "null"); } catch { return null; } }
+
+async function session() {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get("access_token")) {
+    saveSession({ access: hash.get("access_token"), refresh: hash.get("refresh_token"), expires: Date.now() + Number(hash.get("expires_in") || 3600) * 1000 });
+    history.replaceState(null, "", location.pathname);
+  }
+  let s = loadSession();
+  if (s && s.expires < Date.now() + 60000 && s.refresh) {
+    const r = await fetch(`${SUPABASE}/auth/v1/token?grant_type=refresh_token`, { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: s.refresh }) });
+    if (r.ok) { const j = await r.json(); s = { access: j.access_token, refresh: j.refresh_token, expires: Date.now() + j.expires_in * 1000 }; saveSession(s); } else s = null;
+  }
+  return s;
+}
+
+$("loginForm").onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch(`${SUPABASE}/auth/v1/otp?redirect_to=${encodeURIComponent(SITE + "/dashboard/")}`, {
+    method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: $("email").value.trim(), create_user: true }) });
+  $("loginMessage").textContent = r.ok ? "Check your email and open the link on this device." : "Couldn't send the email. Try again in a minute.";
+};
+
+async function api(route, body = {}) {
+  const s = await session();
+  if (!s) { showLogin(); throw new Error("signed out"); }
+  const r = await fetch(`${SUPABASE}/functions/v1/admin/${route}`, { method: "POST",
+    headers: { apikey: KEY, Authorization: `Bearer ${s.access}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { sessionStorage.removeItem("gl.session"); showLogin(); throw new Error(j.error); }
+  if (!r.ok) throw new Error(j.error || "Something went wrong.");
+  return j;
+}
+
+function showLogin() { $("login").hidden = false; $("app").hidden = true; }
+function say(text, good) { const m = $("message"); m.textContent = text; m.className = good ? "ok" : "err"; }
+async function copy(text, what) { try { await navigator.clipboard.writeText(text); say(`${what} copied.`, true); } catch { prompt(`Copy the ${what.toLowerCase()}:`, text); } }
+
+// ---- Dashboard ----
+async function load() {
+  const { creators } = await api("stats");
+  $("login").hidden = true; $("app").hidden = false;
+  const sum = k => creators.reduce((t, c) => t + Number(c[k] || 0), 0);
+  $("totals").replaceChildren(
+    ...[["Creators", creators.length], ["Paying subscribers", sum("paying")], ["Active now", sum("active_subscribers")],
+        ["Their earnings", gbp(sum("earned_gbp"))], ["Owed now", gbp(sum("owed_gbp"))]]
+      .map(([t, v]) => el("div", { class: "tile" }, el("span", { class: "muted" }, t), el("b", {}, v))));
+  $("rows").replaceChildren(...creators.map(c => el("tr", {},
+    el("td", {}, el("strong", {}, c.name), c.active ? "" : el("span", { class: "pill", style: "margin-left:6px" }, "Paused"), el("div", { class: "muted", style: "font-size:13px" }, c.email || "")),
+    el("td", {}, c.code || "–"),
+    el("td", { class: "num" }, `${Math.round(c.revenue_share * 1000) / 10}%`),
+    el("td", { class: "num" }, c.code_uses), el("td", { class: "num" }, c.subscriptions),
+    el("td", { class: "num" }, c.paying), el("td", { class: "num" }, c.active_subscribers),
+    el("td", { class: "num" }, gbp(c.earned_gbp)), el("td", { class: "num" }, gbp(c.paid_gbp)),
+    el("td", { class: "num" + (Number(c.owed_gbp) > 0 ? " owed" : "") }, gbp(c.owed_gbp)),
+    el("td", {},
+      el("button", { class: "ghost", onclick: () => copy(`${SITE}/c/?${c.code}`, "Creator link") }, "Link"),
+      el("button", { class: "ghost", onclick: () => copy(`${SITE}/creator/?t=${c.link_token}`, "Stats page link") }, "Stats page"),
+      el("button", { class: "ghost", onclick: () => payout(c) }, "Record payout"),
+      el("button", { class: "ghost", onclick: () => toggle(c) }, c.active ? "Pause" : "Resume")))));
+}
+
+async function payout(c) {
+  const amount = prompt(`Record a payout to ${c.name} in pounds (owed: ${gbp(c.owed_gbp)}):`, Number(c.owed_gbp) > 0 ? Number(c.owed_gbp).toFixed(2) : "");
+  if (!amount) return;
+  const note = prompt("Note (optional), e.g. bank transfer 1 Dec:", "") || "";
+  try { await api("payouts/add", { creatorId: c.creator_id, amount: Number(amount), note }); say(`Payout to ${c.name} recorded.`, true); load(); }
+  catch (e) { say(e.message); }
+}
+
+async function toggle(c) {
+  if (c.active && !confirm(`Pause ${c.name}? Their code stops working in the app. Earnings so far stay.`)) return;
+  try { await api("creators/update", { id: c.creator_id, active: !c.active }); load(); } catch (e) { say(e.message); }
+}
+
+$("name").oninput = () => { if (!$("code").dataset.touched) $("code").value = $("name").value.split(" ")[0].toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16); };
+$("code").oninput = () => { $("code").dataset.touched = "1"; $("code").value = $("code").value.toUpperCase().replace(/[^A-Z0-9]/g, ""); };
+$("addForm").onsubmit = async e => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  try {
+    const r = await api("creators/create", { name: $("name").value, email: $("cemail").value, code: $("code").value, share: Number($("share").value) / 100 });
+    say(`${$("name").value} added with code ${r.code}.` + (r.appleDiscount ? " Apple's 10% off is attached." : ` ${r.appleError || ""}`), r.appleDiscount);
+    e.target.reset(); delete $("code").dataset.touched; load();
+  } catch (err) { say(err.message); } finally { btn.disabled = false; }
+};
+$("refresh").onclick = load;
+
+session().then(s => s ? load().catch(() => {}) : showLogin());
+</script>
+</main></body></html>

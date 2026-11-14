@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<title>Your Gainline Stats</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a7aff;--line:#e5e5ea}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--muted:#a1a1a6;--accent:#2890ff;--line:#2c2c2e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.5 -apple-system,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:40px 16px 64px}
+h1{font-size:32px;margin:0 0 4px}.muted{color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:20px}
+.tile{background:var(--card);border-radius:16px;padding:16px}
+.tile b{display:block;font-size:28px;font-variant-numeric:tabular-nums}
+.card{background:var(--card);border-radius:18px;padding:20px;margin-top:16px}
+.code{font-size:28px;font-weight:800;letter-spacing:.06em}
+button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:9px 16px;background:var(--accent);color:#fff;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td{padding:8px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right}
+</style>
+</head>
+<body><main>
+<h1 id="title">Your Gainline stats</h1>
+<p id="intro" class="muted">Loading…</p>
+<div id="content" hidden>
+  <div class="card">
+    <span class="muted">Your code</span>
+    <div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code" id="code"></span><button id="copyLink">Copy your link</button></div>
+    <p class="muted" style="margin-bottom:0">Your followers get 10% off their first year of Gainline yearly with your code. You earn <strong id="share"></strong> of what Gainline receives from every subscriber you bring in, for as long as they stay subscribed.</p>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <div class="card"><strong>Payouts</strong><table><tbody id="payouts"></tbody></table></div>
+  <p class="muted" style="font-size:14px">Earnings are estimated in GBP after Apple's commission and VAT. Refunds are taken off. Subscriber identities are never shared.</p>
+</div>
+<script>
+const SUPABASE = "https://dgncznswtxudxndubxrd.supabase.co";
+const SITE = "https://bail940ey442.github.io/gainline";
+const gbp = n => "£" + Number(n || 0).toFixed(2);
+const $ = id => document.getElementById(id);
+const token = new URLSearchParams(location.search).get("t") || "";
+
+fetch(`${SUPABASE}/functions/v1/creator`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
+  .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Couldn't load your stats."); return j; })
+  .then(s => {
+    $("title").textContent = `Hi ${s.name.split(" ")[0]}`;
+    $("intro").textContent = s.active ? "Here's how your Gainline code is doing." : "Your code is paused at the moment. Earnings so far are below.";
+    $("code").textContent = s.code;
+    $("share").textContent = `${Math.round(s.share * 1000) / 10}%`;
+    $("copyLink").onclick = async () => {
+      const link = `${SITE}/c/?${s.code}`;
+      try { await navigator.clipboard.writeText(link); $("copyLink").textContent = "Copied"; } catch { prompt("Copy your link:", link); }
+    };
+    const tile = (label, value) => { const d = document.createElement("div"); d.className = "tile"; const l = document.createElement("span"); l.className = "muted"; l.textContent = label; const b = document.createElement("b"); b.textContent = value; d.append(l, b); return d; };
+    $("tiles").replaceChildren(tile("Code used", s.codeUses), tile("Signed up", s.subscriptions), tile("Paying", s.paying), tile("Active now", s.activeSubscribers),
+      tile("Earned", gbp(s.earnedGBP)), tile("Paid to you", gbp(s.paidGBP)), tile("Due to you", gbp(s.owedGBP)));
+    const rows = s.payouts.length ? s.payouts.map(p => { const tr = document.createElement("tr"); const a = document.createElement("td"); a.textContent = new Date(p.paid_at).toLocaleDateString(); const b = document.createElement("td"); b.textContent = gbp(p.amount_gbp); tr.append(a, b); return tr; })
+      : [(() => { const tr = document.createElement("tr"); const td = document.createElement("td"); td.className = "muted"; td.textContent = "No payouts yet."; tr.append(td); return tr; })()];
+    $("payouts").replaceChildren(...rows);
+    $("content").hidden = false;
+  })
+  .catch(e => { $("intro").textContent = e.message; });
+</script>
+</main></body></html>
