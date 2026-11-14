@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Gainline Creators</title>
+<title>Gainline Dashboard</title>
 <style>
 :root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a7aff;--line:#e5e5ea;--good:#1f9d55;--warn:#c2410c}
 @media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--text:#f5f5f7;--muted:#a1a1a6;--accent:#2890ff;--line:#2c2c2e;--good:#34c759;--warn:#ff9f0a}}
@@ -34,7 +34,8 @@ td.num,th.num{text-align:right}
 </style>
 </head>
 <body><main>
-<h1>Creators</h1>
+<h1>Gainline</h1>
+<nav id="tabs" class="row" style="margin:12px 0 4px" hidden><button class="ghost" data-tab="creators" style="font-weight:800">Creators</button><button class="ghost" data-tab="feedback">Feedback <span id="newCount" class="pill"></span></button></nav>
 <p class="muted">Gainline's creator codes: who's bringing in subscribers, what they've earned and what you owe. Earnings are a share of what you receive after Apple's cut and VAT (estimated in GBP; Apple's monthly payment report is exact).</p>
 
 <section id="login" class="card" hidden>
@@ -45,6 +46,16 @@ td.num,th.num{text-align:right}
     <button>Email me a sign-in link</button>
   </form>
   <p id="loginMessage" class="muted"></p>
+</section>
+
+<section id="feedbackTab" hidden>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Feedback</h2>
+      <div><button class="ghost" data-status="new" id="showNew">New</button><button class="ghost" data-status="done" id="showDone">Done</button></div>
+    </div>
+    <div id="feedbackList"></div>
+  </div>
 </section>
 
 <section id="app" hidden>
@@ -127,14 +138,39 @@ async function api(route, body = {}) {
   return j;
 }
 
-function showLogin() { $("login").hidden = false; $("app").hidden = true; }
+function showLogin() { $("login").hidden = false; $("app").hidden = true; $("feedbackTab").hidden = true; $("tabs").hidden = true; }
+
+// ---- Feedback ----
+let feedbackStatus = "new";
+async function loadFeedback() {
+  const { feedback } = await api("feedback/list", { status: feedbackStatus });
+  if (feedbackStatus === "new") $("newCount").textContent = feedback.length || "";
+  $("feedbackList").replaceChildren(...(feedback.length ? feedback.map(f => el("div", { style: "border-top:1px solid var(--line);padding:14px 0" },
+    el("div", { class: "row", style: "justify-content:space-between" },
+      el("strong", {}, { bug: "🐞 Something's wrong", idea: "💡 Idea", other: "💬 Other" }[f.kind] || f.kind),
+      el("span", { class: "muted", style: "font-size:13px" }, new Date(f.created_at).toLocaleString())),
+    el("p", { style: "white-space:pre-wrap;margin:6px 0" }, f.message),
+    el("div", { class: "muted", style: "font-size:13px" }, `Gainline ${f.app_version || "?"} · ${f.device || "?"} · iOS ${f.os_version || "?"}`),
+    f.screenshot_url ? el("a", { href: f.screenshot_url, target: "_blank", rel: "noopener" }, el("img", { src: f.screenshot_url, style: "max-height:220px;border-radius:10px;margin-top:8px", alt: "Screenshot" })) : "",
+    el("div", {}, el("button", { class: "ghost", onclick: async () => { await api("feedback/update", { id: f.id, status: f.status === "done" ? "new" : "done" }); loadFeedback(); } }, f.status === "done" ? "Move back to New" : "Mark done"))))
+    : [el("p", { class: "muted" }, feedbackStatus === "new" ? "No new feedback." : "Nothing marked done yet.")]));
+}
+document.querySelectorAll("[data-status]").forEach(b => b.onclick = () => { feedbackStatus = b.dataset.status; loadFeedback(); });
+document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+  const fb = b.dataset.tab === "feedback";
+  $("app").hidden = fb; $("feedbackTab").hidden = !fb;
+  document.querySelectorAll("[data-tab]").forEach(x => x.style.fontWeight = x === b ? "800" : "600");
+  if (fb) loadFeedback();
+});
 function say(text, good) { const m = $("message"); m.textContent = text; m.className = good ? "ok" : "err"; }
 async function copy(text, what) { try { await navigator.clipboard.writeText(text); say(`${what} copied.`, true); } catch { prompt(`Copy the ${what.toLowerCase()}:`, text); } }
 
 // ---- Dashboard ----
 async function load() {
   const { creators } = await api("stats");
-  $("login").hidden = true; $("app").hidden = false;
+  $("login").hidden = true; $("tabs").hidden = false;
+  if ($("feedbackTab").hidden) $("app").hidden = false;
+  loadFeedback().catch(() => {});
   const sum = k => creators.reduce((t, c) => t + Number(c[k] || 0), 0);
   $("totals").replaceChildren(
     ...[["Creators", creators.length], ["Paying subscribers", sum("paying")], ["Active now", sum("active_subscribers")],
