@@ -64,12 +64,12 @@ td.num,th.num{text-align:right}
   </div>
 
   <div class="card">
-    <div class="row" style="justify-content:space-between;align-items:center"><h2 style="margin:0">All creators</h2><button class="ghost" id="refresh">Refresh</button></div>
+    <div class="row" style="justify-content:space-between;align-items:center"><h2 style="margin:0">All creators</h2><div><button class="ghost" id="attach">Attach Apple discounts</button><button class="ghost" id="refresh">Refresh</button></div></div>
     <div class="scroll"><table>
-      <thead><tr><th>Creator</th><th>Code</th><th class="num">Share</th><th class="num">Code uses</th><th class="num">Subscribed</th><th class="num">Paying</th><th class="num">Active</th><th class="num">Earned</th><th class="num">Paid</th><th class="num">Owed</th><th></th></tr></thead>
+      <thead><tr><th>Creator</th><th>Code</th><th>10% off</th><th class="num">Share</th><th class="num">Code uses</th><th class="num">Subscribed</th><th class="num">Paying</th><th class="num">Active</th><th class="num">Earned</th><th class="num">Paid</th><th class="num">Owed</th><th></th></tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
-    <p class="muted" style="font-size:14px">Subscribed counts free trials too. Paying means they paid at least once. A refund takes the earnings back.</p>
+    <p class="muted" style="font-size:14px">"10% off: Pending" means Apple hasn't accepted the code for its discount yet. Apple only allows that once Gainline is live and the subscription is approved; until then the code still credits the creator. After launch, press Attach Apple discounts. Subscribed counts free trials too. Paying means they paid at least once. A refund takes the earnings back.</p>
   </div>
 </section>
 
@@ -143,6 +143,7 @@ async function load() {
   $("rows").replaceChildren(...creators.map(c => el("tr", {},
     el("td", {}, el("strong", {}, c.name), c.active ? "" : el("span", { class: "pill", style: "margin-left:6px" }, "Paused"), el("div", { class: "muted", style: "font-size:13px" }, c.email || "")),
     el("td", {}, c.code || "–"),
+    el("td", {}, c.apple_discount ? "Yes" : el("span", { class: "pill" }, "Pending")),
     el("td", { class: "num" }, `${Math.round(c.revenue_share * 1000) / 10}%`),
     el("td", { class: "num" }, c.code_uses), el("td", { class: "num" }, c.subscriptions),
     el("td", { class: "num" }, c.paying), el("td", { class: "num" }, c.active_subscribers),
@@ -180,6 +181,14 @@ $("addForm").onsubmit = async e => {
   } catch (err) { say(err.message); } finally { btn.disabled = false; }
 };
 $("refresh").onclick = load;
+$("attach").onclick = async () => {
+  try {
+    const { results } = await api("creators/attach-apple");
+    const done = results.filter(r => r.ok).length;
+    say(results.length === 0 ? "Every creator already has Apple's discount." : done === results.length ? `Attached ${done}.` : `Attached ${done} of ${results.length}. ${results.find(r => !r.ok)?.error || ""}`, done === results.length);
+    load();
+  } catch (e) { say(e.message); }
+};
 
 session().then(s => s ? load().catch(() => {}) : showLogin());
 </script>
