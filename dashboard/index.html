@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<!-- Only this page's own script and styles may run, and it may only talk to the Gainline server. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://dgncznswtxudxndubxrd.supabase.co; img-src https://dgncznswtxudxndubxrd.supabase.co; base-uri 'none'; form-action 'none'">
 <title>Gainline Dashboard</title>
 <style>
 :root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a7aff;--line:#e5e5ea;--good:#1f9d55;--warn:#c2410c}
@@ -42,10 +44,21 @@ td.num,th.num{text-align:right}
   <h2>Sign in</h2>
   <p class="muted">Enter the admin email and open the link in the email on this device.</p>
   <form id="loginForm" class="row">
-    <label style="flex:1">Email<input id="email" type="email" autocomplete="email" required value="baileywilson12@icloud.com"></label>
+    <label style="flex:1">Email<input id="email" type="email" autocomplete="email" required></label>
     <button>Email me a sign-in link</button>
   </form>
   <p id="loginMessage" class="muted"></p>
+</section>
+
+<section id="keyBox" class="card" hidden>
+  <h2>Admin key</h2>
+  <p class="muted">You're signed in. Enter the admin key to carry on. It is kept for this tab only and forgotten when you close it.</p>
+  <form id="keyForm" class="row">
+    <label style="flex:1">Admin key<input id="adminKey" type="password" autocomplete="off"></label>
+    <button>Continue</button>
+    <button type="button" class="ghost" id="signInAgain">Sign in again</button>
+  </form>
+  <p id="keyMessage" class="err"></p>
 </section>
 
 <section id="feedbackTab" hidden>
@@ -123,25 +136,79 @@ $("loginForm").onsubmit = async e => {
   e.preventDefault();
   const r = await fetch(`${SUPABASE}/auth/v1/otp?redirect_to=${encodeURIComponent(SITE + "/dashboard/")}`, {
     method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ email: $("email").value.trim(), create_user: true }) });
+    body: JSON.stringify({ email: $("email").value.trim(), create_user: false }) });
   $("loginMessage").textContent = r.ok ? "Check your email and open the link on this device." : "Couldn't send the email. Try again in a minute.";
 };
+
+// ---- Admin key (an optional second secret the server can ask for; this tab only) ----
+function adminKey() { try { return sessionStorage.getItem("gl.adminKey") || ""; } catch { return ""; } }
+// The tab being looked at is remembered in `tab`, so it comes back once the key is accepted.
+function showKeyBox(message) {
+  $("keyBox").hidden = false; $("keyMessage").textContent = message || "";
+  $("login").hidden = true; $("app").hidden = true; $("feedbackTab").hidden = true; $("tabs").hidden = true;
+}
+$("keyForm").onsubmit = e => {
+  e.preventDefault();
+  const key = $("adminKey").value.trim();
+  $("adminKey").value = "";
+  if (key) {
+    // A header can only carry plain characters; anything else would make the request fail.
+    if (!/^[\x21-\x7e]+$/.test(key)) { $("keyMessage").textContent = "That doesn't look like the admin key."; return; }
+    try { sessionStorage.setItem("gl.adminKey", key); } catch {}
+  } else if (!adminKey()) { $("keyMessage").textContent = "Enter the admin key."; return; }
+  // Left empty with a key already stored (after "too many failed tries"): try the stored key again.
+  $("keyMessage").textContent = "";
+  load().catch(err => { if (!$("keyBox").hidden && !$("keyMessage").textContent) $("keyMessage").textContent = err.message; });
+};
+// Signing in again only drops the login. A stored admin key stays until the server says it is wrong.
+$("signInAgain").onclick = () => { try { sessionStorage.removeItem("gl.session"); } catch {} showLogin(); };
 
 async function api(route, body = {}) {
   const s = await session();
   if (!s) { showLogin(); throw new Error("signed out"); }
-  const r = await fetch(`${SUPABASE}/functions/v1/admin/${route}`, { method: "POST",
-    headers: { apikey: KEY, Authorization: `Bearer ${s.access}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const headers = { apikey: KEY, Authorization: `Bearer ${s.access}`, "Content-Type": "application/json" };
+  // Only sent once a key has been entered, so the page still works with a server that has no admin key.
+  const key = adminKey();
+  if (key) headers["x-admin-key"] = key;
+  const r = await fetch(`${SUPABASE}/functions/v1/admin/${route}`, { method: "POST", headers, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
-  if (r.status === 401) { sessionStorage.removeItem("gl.session"); showLogin(); throw new Error(j.error); }
+  // 401 { error: "admin_key", key: "missing" | "wrong" }: the login is fine, the server wants the
+  // admin key. The login is kept (sign-in emails are scarce). Only a key the server called wrong
+  // is forgotten, so it isn't sent again and counted as another failed try.
+  if (r.status === 401 && j.error === "admin_key") {
+    const wrong = j.key === "wrong";
+    if (wrong) { try { sessionStorage.removeItem("gl.adminKey"); } catch {} }
+    showKeyBox(wrong ? "That admin key wasn't accepted." : "");
+    throw new Error("Enter the admin key.");
+  }
+  // Any other 401: the login has run out or isn't the admin's. Sign in again; a stored key is kept.
+  if (r.status === 401) {
+    try { sessionStorage.removeItem("gl.session"); } catch {}
+    showLogin("Sign in again with the admin email.");
+    throw new Error("signed out");
+  }
+  // 429: too many wrong keys for this login. The stored key is kept; it may be the right one.
+  if (r.status === 429) {
+    const wait = j.error || "Too many failed tries. Wait 15 minutes.";
+    if (key) showKeyBox(wait);
+    throw new Error(wait);
+  }
   if (!r.ok) throw new Error(j.error || "Something went wrong.");
   return j;
 }
 
-function showLogin() { $("login").hidden = false; $("app").hidden = true; $("feedbackTab").hidden = true; $("tabs").hidden = true; }
+function showLogin(message) {
+  $("login").hidden = false; $("keyBox").hidden = true; $("app").hidden = true; $("feedbackTab").hidden = true; $("tabs").hidden = true;
+  $("loginMessage").textContent = message || "";
+}
 
 // ---- Feedback ----
 let feedbackStatus = "new";
+let tab = "creators";
+function showTab() {
+  $("app").hidden = tab !== "creators"; $("feedbackTab").hidden = tab !== "feedback";
+  document.querySelectorAll("[data-tab]").forEach(x => x.style.fontWeight = x.dataset.tab === tab ? "800" : "600");
+}
 async function loadFeedback() {
   const { feedback } = await api("feedback/list", { status: feedbackStatus });
   if (feedbackStatus === "new") $("newCount").textContent = feedback.length || "";
@@ -152,15 +219,14 @@ async function loadFeedback() {
     el("p", { style: "white-space:pre-wrap;margin:6px 0" }, f.message),
     el("div", { class: "muted", style: "font-size:13px" }, `Gainline ${f.app_version || "?"} · ${f.device || "?"} · iOS ${f.os_version || "?"}`),
     f.screenshot_url ? el("a", { href: f.screenshot_url, target: "_blank", rel: "noopener" }, el("img", { src: f.screenshot_url, style: "max-height:220px;border-radius:10px;margin-top:8px", alt: "Screenshot" })) : "",
-    el("div", {}, el("button", { class: "ghost", onclick: async () => { await api("feedback/update", { id: f.id, status: f.status === "done" ? "new" : "done" }); loadFeedback(); } }, f.status === "done" ? "Move back to New" : "Mark done"))))
+    el("div", {}, el("button", { class: "ghost", onclick: async () => { try { await api("feedback/update", { id: f.id, status: f.status === "done" ? "new" : "done" }); await loadFeedback(); } catch {} } }, f.status === "done" ? "Move back to New" : "Mark done"))))
     : [el("p", { class: "muted" }, feedbackStatus === "new" ? "No new feedback." : "Nothing marked done yet.")]));
 }
-document.querySelectorAll("[data-status]").forEach(b => b.onclick = () => { feedbackStatus = b.dataset.status; loadFeedback(); });
+document.querySelectorAll("[data-status]").forEach(b => b.onclick = () => { feedbackStatus = b.dataset.status; loadFeedback().catch(() => {}); });
 document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
-  const fb = b.dataset.tab === "feedback";
-  $("app").hidden = fb; $("feedbackTab").hidden = !fb;
-  document.querySelectorAll("[data-tab]").forEach(x => x.style.fontWeight = x === b ? "800" : "600");
-  if (fb) loadFeedback();
+  tab = b.dataset.tab === "feedback" ? "feedback" : "creators";
+  showTab();
+  if (tab === "feedback") loadFeedback().catch(() => {});
 });
 function say(text, good) { const m = $("message"); m.textContent = text; m.className = good ? "ok" : "err"; }
 async function copy(text, what) { try { await navigator.clipboard.writeText(text); say(`${what} copied.`, true); } catch { prompt(`Copy the ${what.toLowerCase()}:`, text); } }
@@ -168,8 +234,8 @@ async function copy(text, what) { try { await navigator.clipboard.writeText(text
 // ---- Dashboard ----
 async function load() {
   const { creators } = await api("stats");
-  $("login").hidden = true; $("tabs").hidden = false;
-  if ($("feedbackTab").hidden) $("app").hidden = false;
+  $("login").hidden = true; $("keyBox").hidden = true; $("tabs").hidden = false;
+  showTab();
   loadFeedback().catch(() => {});
   const sum = k => creators.reduce((t, c) => t + Number(c[k] || 0), 0);
   $("totals").replaceChildren(
@@ -187,7 +253,8 @@ async function load() {
     el("td", { class: "num" + (Number(c.owed_gbp) > 0 ? " owed" : "") }, gbp(c.owed_gbp)),
     el("td", {},
       el("button", { class: "ghost", onclick: () => copy(`${SITE}/c/?${c.code}`, "Creator link") }, "Link"),
-      el("button", { class: "ghost", onclick: () => copy(`${SITE}/creator/?t=${c.link_token}`, "Stats page link") }, "Stats page"),
+      el("button", { class: "ghost", onclick: () => copy(`${SITE}/creator/#t=${c.link_token}`, "Stats page link") }, "Stats page"),
+      el("button", { class: "ghost", onclick: () => newStatsLink(c) }, "New stats link"),
       el("button", { class: "ghost", onclick: () => payout(c) }, "Record payout"),
       el("button", { class: "ghost", onclick: () => toggle(c) }, c.active ? "Pause" : "Resume")))));
 }
@@ -198,6 +265,16 @@ async function payout(c) {
   const note = prompt("Note (optional), e.g. bank transfer 1 Dec:", "") || "";
   try { await api("payouts/add", { creatorId: c.creator_id, amount: Number(amount), note }); say(`Payout to ${c.name} recorded.`, true); load(); }
   catch (e) { say(e.message); }
+}
+
+// Replaces the creator's private stats link, for when the old one has been shared or leaked.
+async function newStatsLink(c) {
+  if (!confirm(`Make a new stats link for ${c.name}? The link they have now stops working and you'll need to send them the new one.`)) return;
+  try {
+    await api("creators/rotate-link", { id: c.creator_id });
+    await load();
+    say(`New stats link made for ${c.name}. Press Stats page to copy it and send it to them.`, true);
+  } catch (e) { say(e.message); }
 }
 
 async function toggle(c) {
@@ -216,7 +293,7 @@ $("addForm").onsubmit = async e => {
     e.target.reset(); delete $("code").dataset.touched; load();
   } catch (err) { say(err.message); } finally { btn.disabled = false; }
 };
-$("refresh").onclick = load;
+$("refresh").onclick = () => load().catch(e => say(e.message));
 $("attach").onclick = async () => {
   try {
     const { results } = await api("creators/attach-apple");
@@ -226,6 +303,8 @@ $("attach").onclick = async () => {
   } catch (e) { say(e.message); }
 };
 
-session().then(s => s ? load().catch(() => {}) : showLogin());
+// If nothing could be shown (the server couldn't be reached), say so instead of leaving a blank page.
+const firstLoadFailed = () => { if ($("login").hidden && $("keyBox").hidden && $("tabs").hidden) showLogin("Couldn't load the dashboard. Reload the page to try again."); };
+session().then(s => s ? load().catch(firstLoadFailed) : showLogin(), firstLoadFailed);
 </script>
 </main></body></html>

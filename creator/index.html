@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://dgncznswtxudxndubxrd.supabase.co; base-uri 'none'; form-action 'none'">
 <title>Your Gainline Stats</title>
 <style>
 :root{--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#6e6e73;--accent:#0a7aff;--line:#e5e5ea}
@@ -39,7 +40,14 @@ const SUPABASE = "https://dgncznswtxudxndubxrd.supabase.co";
 const SITE = "https://bail940ey442.github.io/gainline";
 const gbp = n => "£" + Number(n || 0).toFixed(2);
 const $ = id => document.getElementById(id);
-const token = new URLSearchParams(location.search).get("t") || "";
+// The private token comes after the # so it is never sent to the web host. Older links carry it
+// as ?t=; those still work and are moved behind the # in the address bar and history.
+const fromQuery = new URLSearchParams(location.search).get("t") || "";
+const token = new URLSearchParams(location.hash.slice(1)).get("t") || fromQuery;
+if (fromQuery) { try { history.replaceState(null, "", location.pathname + "#t=" + encodeURIComponent(token)); } catch {} }
+// Opening a new link in a tab that already shows this page only changes the part after the #,
+// which doesn't load the page again by itself, so the old stats would stay on screen.
+window.addEventListener("hashchange", () => location.reload());
 
 fetch(`${SUPABASE}/functions/v1/creator`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
   .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Couldn't load your stats."); return j; })
